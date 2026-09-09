@@ -64,6 +64,35 @@ class FlexOlmoModelTest(CausalLMModelTest, unittest.TestCase):
 
 @require_torch
 class FlexOlmoIntegrationTest(unittest.TestCase):
+    model_id = "shanearora/Flex-reddit-2x7B-1T"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.model = None
+
+    @classmethod
+    def get_model(cls):
+        if cls.model is None:
+            # device_map="auto" fills each GPU, so leave 30% headroom for MoE expert
+            # gate/up merge temporaries during loading.
+            if torch.cuda.is_available() and torch.cuda.device_count() > 0:
+                n = torch.cuda.device_count()
+                per_device = int(
+                    min(torch.cuda.get_device_properties(i).total_memory for i in range(n)) * 0.70 / 1024**3
+                )
+                max_memory = dict.fromkeys(range(n), f"{per_device}GiB")
+                max_memory["cpu"] = "60GiB"
+            else:
+                max_memory = None
+            cls.model = FlexOlmoForCausalLM.from_pretrained(cls.model_id, device_map="auto", max_memory=max_memory)
+        return cls.model
+
+    @classmethod
+    def tearDownClass(cls):
+        if hasattr(cls, "model"):
+            del cls.model
+        cleanup(torch_device, gc_collect=True)
+
     def setUp(self):
         cleanup(torch_device, gc_collect=True)
 
@@ -99,7 +128,7 @@ class FlexOlmoIntegrationTest(unittest.TestCase):
         EXPECTED_TEXT_COMPLETION = """Simply put, the theory of relativity states that 1) the laws of physics are the same in all inertial frames of reference, and 2) the speed of light is constant in all inertial frames of reference. The first statement is called the principle of relativity, and the second is called the constancy of the speed of light. The first statement is"""
         prompt = "Simply put, the theory of relativity states that "
         tokenizer = AutoTokenizer.from_pretrained("allenai/dolma2-tokenizer", device_map="auto")
-        model = FlexOlmoForCausalLM.from_pretrained("shanearora/Flex-reddit-2x7B-1T", device_map="auto")
+        model = self.get_model()
         input_ids = tokenizer.encode(prompt, return_tensors="pt").to(model.device)
 
         # greedy generation outputs
