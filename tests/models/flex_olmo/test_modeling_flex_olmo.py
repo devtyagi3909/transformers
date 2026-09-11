@@ -86,7 +86,9 @@ class FlexOlmoIntegrationTest(unittest.TestCase):
                 max_memory["cpu"] = "60GiB"
             else:
                 max_memory = None
-            cls.model = FlexOlmoForCausalLM.from_pretrained(cls.model_id, device_map="auto", max_memory=max_memory)
+            cls.model = FlexOlmoForCausalLM.from_pretrained(
+                cls.model_id, device_map="auto", max_memory=max_memory, torch_dtype=torch.bfloat16
+            )
         return cls.model
 
     @classmethod
