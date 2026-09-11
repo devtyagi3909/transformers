@@ -104,10 +104,8 @@ class FlexOlmoIntegrationTest(unittest.TestCase):
     @slow
     def test_model_7b_logits(self):
         input_ids = [[1, 306, 4658, 278, 6593, 310, 2834, 338]]
-        model = FlexOlmoForCausalLM.from_pretrained("shanearora/Flex-reddit-2x7B-1T").to(
-            torch_device, dtype=torch.bfloat16
-        )
-        out = model(torch.tensor(input_ids, device=torch_device)).logits.float()
+        model = self.get_model()
+        out = model(torch.tensor(input_ids, device=model.device)).logits.float()
         # Expected mean on dim = -1
         expectations = Expectations(
             {
