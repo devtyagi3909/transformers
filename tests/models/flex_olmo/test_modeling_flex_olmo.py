@@ -19,7 +19,6 @@ from transformers import is_torch_available
 from transformers.models.auto.tokenization_auto import AutoTokenizer
 from transformers.testing_utils import (
     Expectations,
-    backend_device_count,
     cleanup,
     require_torch,
     slow,
@@ -74,25 +73,13 @@ class FlexOlmoIntegrationTest(unittest.TestCase):
     @classmethod
     def get_model(cls):
         if cls.model is None:
-            n = backend_device_count(torch_device)
-            if n > 1 and torch_device != "cpu":
-                # Multi-GPU: device_map="auto" fills each GPU greedily, so leave 30%
-                # headroom for the MoE gate/up MergeModulelist temporaries during loading.
-                torch_accel = getattr(torch, torch_device)
-                per_device = int(
-                    min(torch_accel.get_device_properties(i).total_memory for i in range(n)) * 0.70 / 1024**3
-                )
-                max_memory = dict.fromkeys(range(n), f"{per_device}GiB")
-                max_memory["cpu"] = "60GiB"
-                cls.model = FlexOlmoForCausalLM.from_pretrained(
-                    cls.model_id, device_map="auto", max_memory=max_memory, torch_dtype=torch.bfloat16
-                )
-            else:
-                # Single-GPU or CPU: load on CPU then move to device; this avoids
-                # disk-offload hooks during the forward pass that can OOM on small GPUs.
-                cls.model = FlexOlmoForCausalLM.from_pretrained(cls.model_id, torch_dtype=torch.bfloat16)
-                if torch_device != "cpu":
-                    cls.model = cls.model.to(torch_device)
+            # Load on CPU first so the MoE MergeModulelist weight conversion runs in CPU RAM
+            # (not on CUDA), avoiding OOM on multi-GPU runners where device_map="auto" fills
+            # both GPUs before the merge buffer is allocated.  The bfloat16 model (~22 GiB)
+            # then fits comfortably on a single accelerator.
+            cls.model = FlexOlmoForCausalLM.from_pretrained(cls.model_id)
+            if torch_device != "cpu":
+                cls.model = cls.model.to(torch_device, dtype=torch.bfloat16)
         return cls.model
 
     @classmethod
