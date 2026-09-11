@@ -19,6 +19,7 @@ from transformers import is_torch_available
 from transformers.models.auto.tokenization_auto import AutoTokenizer
 from transformers.testing_utils import (
     Expectations,
+    backend_device_count,
     cleanup,
     require_torch,
     slow,
@@ -66,28 +67,6 @@ class FlexOlmoModelTest(CausalLMModelTest, unittest.TestCase):
 class FlexOlmoIntegrationTest(unittest.TestCase):
     model_id = "shanearora/Flex-reddit-2x7B-1T"
 
-    @classmethod
-    def setUpClass(cls):
-        cls.model = None
-
-    @classmethod
-    def get_model(cls):
-        if cls.model is None:
-            # Load on CPU first so the MoE MergeModulelist weight conversion runs in CPU RAM
-            # (not on CUDA), avoiding OOM on multi-GPU runners where device_map="auto" fills
-            # both GPUs before the merge buffer is allocated.  The bfloat16 model (~22 GiB)
-            # then fits comfortably on a single accelerator.
-            cls.model = FlexOlmoForCausalLM.from_pretrained(cls.model_id)
-            if torch_device != "cpu":
-                cls.model = cls.model.to(torch_device, dtype=torch.bfloat16)
-        return cls.model
-
-    @classmethod
-    def tearDownClass(cls):
-        if hasattr(cls, "model"):
-            del cls.model
-        cleanup(torch_device, gc_collect=True)
-
     def setUp(self):
         cleanup(torch_device, gc_collect=True)
 
@@ -97,8 +76,11 @@ class FlexOlmoIntegrationTest(unittest.TestCase):
     @slow
     def test_model_7b_logits(self):
         input_ids = [[1, 306, 4658, 278, 6593, 310, 2834, 338]]
-        model = self.get_model()
-        out = model(torch.tensor(input_ids, device=model.device)).logits.float()
+        # Load on CPU first so the MoE MergeModulelist weight conversion runs in CPU RAM
+        # (not on CUDA), then move to the accelerator as bfloat16.
+        model = FlexOlmoForCausalLM.from_pretrained(self.model_id).to(torch_device, dtype=torch.bfloat16)
+        with torch.no_grad():
+            out = model(torch.tensor(input_ids, device=torch_device)).logits.float()
         # Expected mean on dim = -1
         expectations = Expectations(
             {
@@ -121,7 +103,20 @@ class FlexOlmoIntegrationTest(unittest.TestCase):
         EXPECTED_TEXT_COMPLETION = """Simply put, the theory of relativity states that 1) the laws of physics are the same in all inertial frames of reference, and 2) the speed of light is constant in all inertial frames of reference. The first statement is called the principle of relativity, and the second is called the constancy of the speed of light. The first statement is"""
         prompt = "Simply put, the theory of relativity states that "
         tokenizer = AutoTokenizer.from_pretrained("allenai/dolma2-tokenizer", device_map="auto")
-        model = self.get_model()
+        # On multi-GPU runners device_map="auto" fills all GPUs before the MoE MergeModulelist
+        # weight-merge buffer is allocated, causing CUDA OOM.  Cap per-GPU memory to 70% so
+        # there is always headroom for the ~344 MiB temporary merge buffer during loading.
+        n = backend_device_count(torch_device)
+        if n > 1 and torch_device != "cpu":
+            torch_accel = getattr(torch, torch_device)
+            per_device = int(
+                min(torch_accel.get_device_properties(i).total_memory for i in range(n)) * 0.70 / 1024**3
+            )
+            max_memory = dict.fromkeys(range(n), f"{per_device}GiB")
+            max_memory["cpu"] = "60GiB"
+            model = FlexOlmoForCausalLM.from_pretrained(self.model_id, device_map="auto", max_memory=max_memory)
+        else:
+            model = FlexOlmoForCausalLM.from_pretrained(self.model_id, device_map="auto")
         input_ids = tokenizer.encode(prompt, return_tensors="pt").to(model.device)
 
         # greedy generation outputs
