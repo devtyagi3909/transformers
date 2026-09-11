@@ -74,21 +74,25 @@ class FlexOlmoIntegrationTest(unittest.TestCase):
     @classmethod
     def get_model(cls):
         if cls.model is None:
-            # device_map="auto" fills each GPU, so leave 30% headroom for MoE expert
-            # gate/up merge temporaries during loading.
             n = backend_device_count(torch_device)
-            if n > 0 and torch_device != "cpu":
+            if n > 1 and torch_device != "cpu":
+                # Multi-GPU: device_map="auto" fills each GPU greedily, so leave 30%
+                # headroom for the MoE gate/up MergeModulelist temporaries during loading.
                 torch_accel = getattr(torch, torch_device)
                 per_device = int(
                     min(torch_accel.get_device_properties(i).total_memory for i in range(n)) * 0.70 / 1024**3
                 )
                 max_memory = dict.fromkeys(range(n), f"{per_device}GiB")
                 max_memory["cpu"] = "60GiB"
+                cls.model = FlexOlmoForCausalLM.from_pretrained(
+                    cls.model_id, device_map="auto", max_memory=max_memory, torch_dtype=torch.bfloat16
+                )
             else:
-                max_memory = None
-            cls.model = FlexOlmoForCausalLM.from_pretrained(
-                cls.model_id, device_map="auto", max_memory=max_memory, torch_dtype=torch.bfloat16
-            )
+                # Single-GPU or CPU: load on CPU then move to device; this avoids
+                # disk-offload hooks during the forward pass that can OOM on small GPUs.
+                cls.model = FlexOlmoForCausalLM.from_pretrained(cls.model_id, torch_dtype=torch.bfloat16)
+                if torch_device != "cpu":
+                    cls.model = cls.model.to(torch_device)
         return cls.model
 
     @classmethod
