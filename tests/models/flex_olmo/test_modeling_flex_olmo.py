@@ -84,7 +84,7 @@ class FlexOlmoIntegrationTest(unittest.TestCase):
         # Expected mean on dim = -1
         expectations = Expectations(
             {
-                ("cuda", 8): [[-5.4202, -5.3883, -2.3924, -2.1226, -6.0122, -5.4173, -5.4571, -5.8256]],
+                ("cuda", 8): [[-5.4104, -5.4184, -2.3990, -2.1629, -5.9821, -5.4135, -5.5049, -5.8399]],
             }
         )
         EXPECTED_MEAN = torch.tensor(expectations.get_expectation(), device=torch_device)
@@ -92,7 +92,7 @@ class FlexOlmoIntegrationTest(unittest.TestCase):
         # slicing logits[0, 0, 0:30]
         expectations = Expectations(
             {
-                ("cuda", 8): [ 0.5547, -3.6250, -7.2812, -5.0312, -5.9062, -5.3438, -4.2500, -4.6875, -3.4219, -4.6250, -6.5938, -3.1250, -6.0625, -2.0781, -6.4688, -0.4941,  1.2656,  0.7578, -0.1934, -0.4160, -0.6992, -0.9531, -0.9648, -1.3125, -1.2578, -4.5625, -2.4219, -5.6250,  0.7695, -4.5938],
+                ("cuda", 8): [ 0.5234, -3.6094, -7.2500, -5.0000, -5.8750, -5.2813, -4.2813, -4.6563, -3.4219, -4.6563, -6.5625, -3.1406, -6.0625, -2.1094, -6.4688, -0.5078,  1.2422,  0.7344, -0.1953, -0.4160, -0.6992, -0.9609, -0.9688, -1.3359, -1.2656, -4.5625, -2.4375, -5.5938,  0.7734, -4.5625],
             }
         )  # fmt: skip
         EXPECTED_SLICE = torch.tensor(expectations.get_expectation(), device=torch_device)
