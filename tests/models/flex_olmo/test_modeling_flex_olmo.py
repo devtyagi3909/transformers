@@ -19,6 +19,7 @@ from transformers import is_torch_available
 from transformers.models.auto.tokenization_auto import AutoTokenizer
 from transformers.testing_utils import (
     Expectations,
+    backend_device_count,
     cleanup,
     require_torch,
     slow,
@@ -75,10 +76,11 @@ class FlexOlmoIntegrationTest(unittest.TestCase):
         if cls.model is None:
             # device_map="auto" fills each GPU, so leave 30% headroom for MoE expert
             # gate/up merge temporaries during loading.
-            if torch.cuda.is_available() and torch.cuda.device_count() > 0:
-                n = torch.cuda.device_count()
+            n = backend_device_count(torch_device)
+            if n > 0 and torch_device != "cpu":
+                torch_accel = getattr(torch, torch_device)
                 per_device = int(
-                    min(torch.cuda.get_device_properties(i).total_memory for i in range(n)) * 0.70 / 1024**3
+                    min(torch_accel.get_device_properties(i).total_memory for i in range(n)) * 0.70 / 1024**3
                 )
                 max_memory = dict.fromkeys(range(n), f"{per_device}GiB")
                 max_memory["cpu"] = "60GiB"
